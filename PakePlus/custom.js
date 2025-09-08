@@ -4,7 +4,6 @@ console.log(
 )
 
 // very important, if you don't know what it is, don't touch it
-// 非常重要，不懂代码不要动
 const hookClick = (e) => {
     const origin = e.target.closest('a')
     const isBaseTargetBlank = document.querySelector(
@@ -21,6 +20,11 @@ const hookClick = (e) => {
     } else {
         console.log('not handle origin', origin)
     }
+}
+
+window.open = function (url, target, features) {
+    console.log('open', url, target, features)
+    location.href = url
 }
 
 document.addEventListener('click', hookClick, { capture: true })
