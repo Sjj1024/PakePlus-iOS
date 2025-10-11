@@ -1,56 +1,45 @@
 name: Build IPA
-
 on:
     workflow_dispatch:
     # push:
     #     branches:
     #         - main
-
 permissions:
     contents: write
     pages: write
     id-token: write
-
 jobs:
     build:
         runs-on: macos-latest
-
         steps:
             - name: Checkout Repository
               uses: actions/checkout@v4
-
             - name: Set up Xcode
               uses: maxim-lobanov/setup-xcode@v1
               with:
                   xcode-version: '16.4'
-
             - uses: pnpm/action-setup@v3
               with:
                   version: latest
-
             - name: Sync node version and setup cache
               uses: actions/setup-node@v4
               with:
                   node-version: 20
                   cache: pnpm
-
             - name: Init Project Config
               run: |
                   pnpm install
                   pnpm pp:worker
-
-            - name: Generate AppIcon
-              run: |
-                  echo "Installing appicon tool..."
-                  brew install Nonchalant/appicon/appicon
-                  echo "Generating AppIcon..."
-                  appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
-
+            # - name: Generate AppIcon
+            #   run: |
+            #       echo "Installing appicon tool..."
+            #       brew install Nonchalant/appicon/appicon
+            #       echo "Generating AppIcon..."
+            #       appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
             - name: Build for Release
               run: |
                   xcodebuild -project PakePlus.xcodeproj -scheme PakePlus -configuration Release -sdk iphoneos \
                     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-
             - name: Package IPA
               run: |
                   APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -type d -name "PakePlus.app" | grep Release-iphoneos | head -n 1)
@@ -62,7 +51,6 @@ jobs:
                   zip -r ${NAME}-${VERSION}.ipa Payload
                   mkdir -p export
                   mv ${NAME}-${VERSION}.ipa export/
-
             - name: Publish IPA
               uses: softprops/action-gh-release@v1
               with:
