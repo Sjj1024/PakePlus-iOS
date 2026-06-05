@@ -47,22 +47,38 @@ jobs:
 
             - name: Build for Release
               run: |
+                  mkdir -p build
                   xcodebuild -project PakePlus.xcodeproj -scheme PakePlus -configuration Release -sdk iphoneos \
+                    -derivedDataPath build \
                     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 
             - name: Package IPA
               run: |
-                  APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -type d -name "PakePlus.app" | grep Release-iphoneos | head -n 1)
+                  APP_PATH=$(find build -type d -name "PakePlus.app" | grep Release-iphoneos | head -n 1)
                   echo "APP_PATH is $APP_PATH"
+                  if [ -z "$APP_PATH" ]; then
+                      echo "❌ Error: Could not find PakePlus.app!"
+                      ls -la build/
+                      exit 1
+                  fi
                   mkdir -p Payload
                   cp -R "$APP_PATH" Payload/
                   NAME="${{ env.NAME }}"
                   VERSION="${{ env.VERSION }}"
                   ISHTML="${{ env.ISHTML }}"
-                  ${ISHTML} && cp -R ./Scripts/www/* ./Payload/PakePlus.app/
+                  if [ "$ISHTML" = "true" ] && [ -d "./scripts/www" ]; then
+                      cp -R ./scripts/www/* ./Payload/PakePlus.app/
+                  fi
                   zip -r ${NAME}-${VERSION}.ipa Payload
                   mkdir -p export
                   mv ${NAME}-${VERSION}.ipa export/
+                  ls -la export/
+
+            - name: Upload Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ipa-artifact
+                  path: export/
 
             - name: Publish IPA
               uses: softprops/action-gh-release@v1
