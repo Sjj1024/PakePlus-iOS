@@ -1,0 +1,75 @@
+name: Build Unsigned IPA
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - main
+
+jobs:
+    build-ipa:
+        runs-on: macos-15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Xcode (16+, 需要 objectVersion 77)
+              uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: 'latest-stable'
+
+            - name: Show toolchain
+              run: |
+                  xcodebuild -version
+                  swift --version
+
+            - name: Build (unsigned)
+              run: |
+                  set -eo pipefail
+                  xcodebuild \
+                    -project PakePlus.xcodeproj \
+                    -scheme PakePlus \
+                    -configuration Release \
+                    -sdk iphoneos \
+                    -destination 'generic/platform=iOS' \
+                    -derivedDataPath "$RUNNER_TEMP/build" \
+                    CODE_SIGN_IDENTITY="" \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGNING_ALLOWED=NO \
+                    build
+
+            - name: Package IPA + 校验卡密页已编入
+              run: |
+                  set -eo pipefail
+                  APP="$RUNNER_TEMP/build/Build/Products/Release-iphoneos/PakePlus.app"
+                  if [ ! -d "$APP" ]; then
+                    echo "❌ 未找到构建产物: $APP"
+                    exit 1
+                  fi
+
+                  BIN="$APP/PakePlus"
+                  echo "=== 校验二进制是否包含卡密相关符号 ==="
+                  if strings -a "$BIN" | grep -q "CardKeyView"; then
+                    echo "✅ CardKeyView 已编入二进制"
+                  else
+                    echo "❌ 二进制中没有 CardKeyView，说明卡密页代码没有被编译进去，请不要发布这个包"
+                    exit 1
+                  fi
+                  strings -a "$BIN" | grep -q "XbLicense" && echo "✅ XbLicense 已编入二进制" || true
+
+                  echo "=== 校验 Info.plist 配置 ==="
+                  /usr/libexec/PlistBuddy -c "Print :WEBURL" "$APP/Info.plist" || true
+                  /usr/libexec/PlistBuddy -c "Print :DEBUG" "$APP/Info.plist" || true
+
+                  mkdir -p Payload
+                  cp -R "$APP" Payload/
+                  rm -rf Payload/PakePlus.app/_CodeSignature
+                  IPA="PakePlus-unsigned-${GITHUB_SHA::7}.ipa"
+                  zip -qry "$IPA" Payload
+                  ls -lh "$IPA"
+
+            - name: Upload IPA Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: PakePlus-ipa
+                  path: PakePlus-unsigned-*.ipa
