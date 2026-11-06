@@ -8,7 +8,7 @@ on:
 
 jobs:
     build-ipa:
-        runs-on: macos-15
+        runs-on: macos-14
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -49,13 +49,24 @@ jobs:
 
                   BIN="$APP/PakePlus"
                   echo "=== 校验二进制是否包含卡密相关符号 ==="
-                  if strings -a "$BIN" | grep -q "CardKeyView"; then
-                    echo "✅ CardKeyView 已编入二进制"
-                  else
-                    echo "❌ 二进制中没有 CardKeyView，说明卡密页代码没有被编译进去，请不要发布这个包"
-                    exit 1
-                  fi
-                  strings -a "$BIN" | grep -q "XbLicense" && echo "✅ XbLicense 已编入二进制" || true
+                  # 先落盘再 grep：`strings ... | grep -q` 命中后 grep 立即退出，strings 会因 SIGPIPE
+                  # 写不出数据而返回非 0，配合 `set -o pipefail` 会让整条管道被判定为失败（误报）。
+                  STRINGS_DUMP="$RUNNER_TEMP/pakeplus.strings"
+                  strings -a "$BIN" > "$STRINGS_DUMP"
+
+                  check_symbol() {
+                    if grep -q -- "$1" "$STRINGS_DUMP"; then
+                      echo "✅ $1 已编入二进制"
+                    elif [ "$2" = "required" ]; then
+                      echo "❌ 二进制中没有 $1，说明相关代码没有被编译进去，请不要发布这个包"
+                      exit 1
+                    else
+                      echo "⚠️ 二进制中没有 $1（非致命，仅提示）"
+                    fi
+                  }
+
+                  check_symbol "CardKeyView" required
+                  check_symbol "XbLicense" optional
 
                   echo "=== 校验 Info.plist 配置 ==="
                   /usr/libexec/PlistBuddy -c "Print :WEBURL" "$APP/Info.plist" || true
