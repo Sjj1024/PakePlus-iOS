@@ -8,7 +8,7 @@ enum XbConfig {
     static let soft = "A5oK9TdIScwJ7YVhKa"
     static let softKey = "spsDHBCg8SeoPuOcCMpiWX6hJ9WQ3atN"
     // 必须与小白后台的通信密钥、签名算法一致；下方是同账号其他端已使用的配置。
-    static let rc4Key = "Dgn4Nu5q4m0RgBfjI8OXcq7HT8GtWRVQ2rYr9ncJqzmrN46n"
+    static let rc4Key = "f58I8xTfTgaq0wuYrnUUn741ttawInxw0er0m3nmgSqMUC6c"
     static let signTemplate = "123[data]456[key]789"
     static let host = "api4.xbzhan.com"
     static let version = "1.0.0"
@@ -138,6 +138,10 @@ enum XbService {
         guard login.code == 200 else { return (false, login.message.isEmpty ? "卡密验证失败" : login.message) }
         guard let cookie = login.cookie, !cookie.isEmpty else { return (false, "登录成功但未获取到凭证") }
         let info = await call("/api/login_info", extra: ["account": card, "cookie": cookie])
+        guard !info.networkError else { return (false, info.message) }
+        guard info.code == 200 else {
+            return (false, info.message.isEmpty ? "授权信息获取失败" : info.message)
+        }
         let previous = XbVault.load()
         XbVault.save(XbLicenseState(cardKey: card, firstActivatedAt: previous?.firstActivatedAt ?? Date(),
             lastVerifiedAt: Date(), expireAt: info.expireAt ?? login.expireAt, disabled: false,
