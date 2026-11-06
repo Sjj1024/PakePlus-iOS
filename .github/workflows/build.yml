@@ -39,6 +39,9 @@ jobs:
 
         runs-on: ${{ matrix.platform }}
         timeout-minutes: 60
+        env:
+            TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+            TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         steps:
             - uses: actions/checkout@v5
 
@@ -73,7 +76,7 @@ jobs:
               run: pnpm tauri icon
 
             - name: Create Apple icon
-              if: matrix.platform == 'macos-latest'
+              if: startsWith(matrix.platform, 'macos-')
               run: node ./scripts/creatIcon.cjs
 
             - name: install dependencies (ubuntu only)
@@ -85,6 +88,8 @@ jobs:
             - uses: Sjj1024/tauri-zhaction@tauri-zhaciton
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+                  TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
               with:
                   tagName: 'PakePlus'
                   releaseName: 'PakePlus v__VERSION__'
