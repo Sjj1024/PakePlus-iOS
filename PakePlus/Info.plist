@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>DEBUG</key>
+	<true/>
+	<key>FULLSCREEN</key>
+	<false/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>允许获取您的大致位置信息</string>
+	<key>LAUNCHIMAGE</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraReactionEffectGesturesEnabledDefault</key>
+	<true/>
+	<key>SCREENON</key>
+	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<key>USERAGENT</key>
+	<string></string>
+	<key>WEBURL</key>
+	<string>https://www.pakeplus.com/</string>
+	<key>CFBundleDisplayName</key>
+	<string>PakePlus</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>mqqwpa</string>
+		<string>mqq</string>
+		<string>mqqapi</string>
+	</array>
+</dict>
+</plist>
