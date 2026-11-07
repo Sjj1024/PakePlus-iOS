@@ -8,11 +8,13 @@ NSString *const XBAesKey = @"HL1MAZDPXijHJqkaayNHbW1OYEHL0bqa"; // 自动取前 
 NSString *const XBAesIv = @"MyOuMMvnvSQsjOsN";
 NSString *const XBSignTpl = @"123[data]456[key]789";
 
-NSArray *const XBEndpoints = @[
-    @"https://api2.xbzhan.com/api/login",
-    @"https://api3.xbzhan.com/api/login",
-    @"https://api4.xbzhan.com/api/login"
-];
+NSArray *XBEndpoints(void) {
+    return @[
+        @"https://api2.xbzhan.com/api/login",
+        @"https://api3.xbzhan.com/api/login",
+        @"https://api4.xbzhan.com/api/login"
+    ];
+}
 
 NSInteger const XBHeartSeconds = 150; // 应小于后台心跳周期(如 180)
 BOOL const XBHeartEnabled = YES;       // 校验失败/超时自动退出

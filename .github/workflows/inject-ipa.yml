@@ -84,7 +84,7 @@ on:
 
 jobs:
     inject:
-        runs-on: macos-14
+        runs-on: macos-15
         timeout-minutes: 40
         steps:
             - name: Checkout
@@ -154,7 +154,7 @@ jobs:
                   NSString *const XBAesKey = @"${AESKEY}";
                   NSString *const XBAesIv = @"${AESIV}";
                   NSString *const XBSignTpl = @"${SIGNTPL}";
-                  NSArray *const XBEndpoints = @[${ARR}];
+                  NSArray *XBEndpoints(void) { return @[${ARR}]; }
                   NSInteger const XBHeartSeconds = ${HEART};
                   BOOL const XBHeartEnabled = ${HEARTBOOL};
                   EOF

@@ -27,7 +27,7 @@ extern NSString *const XBSkey;
 extern NSString *const XBAesKey;
 extern NSString *const XBAesIv;
 extern NSString *const XBSignTpl;
-extern NSArray  *const XBEndpoints;
+extern NSArray  *XBEndpoints(void);
 extern NSInteger const XBHeartSeconds;
 extern BOOL      const XBHeartEnabled;
 
@@ -260,7 +260,7 @@ static NSDictionary *XBParseRoot(NSDictionary *root, XbResult *res) {
 
 static NSArray *XBHeartbeatURLs(void) {
     NSMutableArray *out = [NSMutableArray array];
-    for (id u in XBEndpoints) {
+    for (id u in XBEndpoints()) {
         if (![u isKindOfClass:[NSString class]]) continue;
         NSString *s = u;
         if ([s rangeOfString:@"/api/login"].location != NSNotFound) {
@@ -276,7 +276,7 @@ static XbResult *XBLogin(NSString *card) {
     NSDictionary *body = XBPostBody(XBBaseData(card));
     res.success = NO; res.code = -1; res.msg = @"验证失败";
     if (!body) { res.msg = @"本地加密失败"; return res; }
-    NSDictionary *root = XBPostFirst(XBEndpoints, body);
+    NSDictionary *root = XBPostFirst(XBEndpoints(), body);
     NSDictionary *inner = XBParseRoot(root, res);
     if (!inner) { if (res.msg.length == 0) res.msg = @"验证失败"; return res; }
     res.code = [inner[@"code"] integerValue];
