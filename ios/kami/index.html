@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>授权验证</title>
+<style>
+    :root{
+        --blue:#0a84ff;
+        --blue2:#00b0ff;
+        --ink:#1b1d22;
+        --muted:#8a8f99;
+        --line:#e6e9f0;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%}
+    body{
+        margin:0;
+        font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+        color:var(--ink);
+        background:
+            radial-gradient(1200px 600px at 100% -10%, #cfe3ff 0%, transparent 60%),
+            radial-gradient(900px 500px at -10% 110%, #d8f0ff 0%, transparent 55%),
+            #f5f7fb;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    }
+    .card{
+        width:100%;
+        max-width:380px;
+        background:#fff;
+        border-radius:20px;
+        padding:26px 22px 22px;
+        box-shadow:0 18px 50px rgba(20,40,80,.14), 0 2px 8px rgba(20,40,80,.06);
+        animation:pop .28s ease-out;
+    }
+    @keyframes pop{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+    .logo{
+        width:54px;height:54px;border-radius:15px;margin:0 auto 14px;
+        background:linear-gradient(135deg,var(--blue),var(--blue2));
+        display:flex;align-items:center;justify-content:center;
+        box-shadow:0 8px 20px rgba(10,132,255,.32);
+    }
+    .logo svg{width:28px;height:28px;fill:#fff}
+    h1{font-size:20px;margin:0 0 6px;text-align:center;letter-spacing:.3px}
+    .sub{font-size:13px;color:var(--muted);text-align:center;margin:0 0 20px}
+    .field{position:relative}
+    input{
+        width:100%;height:50px;padding:0 14px;font-size:16px;color:var(--ink);
+        background:#f7f9fc;border:1.5px solid var(--line);border-radius:12px;outline:none;
+        transition:border-color .18s, box-shadow .18s, background .18s;
+        -webkit-appearance:none;
+    }
+    input::placeholder{color:#b6bcc7}
+    input:focus{border-color:var(--blue);background:#fff;box-shadow:0 0 0 4px rgba(10,132,255,.12)}
+    button{
+        width:100%;height:50px;margin-top:14px;border:0;border-radius:12px;
+        color:#fff;font-size:16px;font-weight:600;letter-spacing:.5px;
+        background:linear-gradient(135deg,var(--blue),var(--blue2));
+        box-shadow:0 10px 22px rgba(10,132,255,.30);
+        transition:transform .12s, box-shadow .12s, opacity .12s;
+    }
+    button:active{transform:translateY(1px) scale(.995);box-shadow:0 6px 14px rgba(10,132,255,.26)}
+    button:disabled{opacity:.65;box-shadow:none}
+    .status{
+        min-height:20px;margin-top:14px;text-align:center;font-size:13.5px;color:var(--muted);
+        transition:color .18s;
+    }
+    .status.ok{color:#12a150}
+    .status.err{color:#e5484d}
+    .foot{
+        margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+        display:flex;gap:10px;
+    }
+    .foot a{
+        flex:1;text-align:center;text-decoration:none;font-size:13px;color:var(--blue);
+        padding:9px 0;border-radius:10px;background:#f2f7ff;
+        transition:background .16s;
+    }
+    .foot a:active{background:#e6f0ff}
+    .shake{animation:shake .4s}
+    @keyframes shake{
+        0%,100%{transform:translateX(0)}
+        20%{transform:translateX(-7px)}
+        40%{transform:translateX(7px)}
+        60%{transform:translateX(-5px)}
+        80%{transform:translateX(5px)}
+    }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+    <div class="logo">
+        <svg viewBox="0 0 24 24"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm-3 8V6a3 3 0 1 1 6 0v3H9z"/></svg>
+    </div>
+    <h1>授权验证</h1>
+    <p class="sub">请输入卡密后点击验证</p>
+
+    <div class="field">
+        <input id="activeCode" type="text" placeholder="请输入卡密" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <button id="btnVerify" type="button">立即验证 →</button>
+    <div class="status" id="status">正在检查授权...</div>
+
+    <div class="foot">
+        <a href="javascript:;" id="buy">购买卡密</a>
+        <a href="javascript:;" id="help">联系客服</a>
+    </div>
+</div>
+
+<script>
+(function () {
+    var btn = document.getElementById('btnVerify');
+    var input = document.getElementById('activeCode');
+    var status = document.getElementById('status');
+    var card = document.getElementById('card');
+    var busy = false;
+
+    function setStatus(text, type) {
+        status.textContent = text || '';
+        status.className = 'status' + (type ? ' ' + type : '');
+    }
+
+    function shake() {
+        card.classList.remove('shake');
+        void card.offsetWidth;
+        card.classList.add('shake');
+    }
+
+    window.onCardVerify = function (ok, code, body) {
+        busy = false;
+        btn.disabled = false;
+        btn.textContent = '立即验证 →';
+        if (ok && body === 'ok') {
+            setStatus('验证成功', 'ok');
+            window.Android.writeSP('kami', input.value.trim());
+            window.Android.close();
+        } else {
+            setStatus(body || ('验证失败' + (code ? '（' + code + '）' : '')), 'err');
+            shake();
+        }
+    };
+
+    function verify() {
+        if (busy) return;
+        var key = (input.value || '').trim();
+        if (!key) {
+            setStatus('请输入卡密', 'err');
+            shake();
+            return;
+        }
+        busy = true;
+        btn.disabled = true;
+        btn.textContent = '验证中...';
+        setStatus('正在连接服务器...');
+        window.Android.verifyCardKey2('', '', key, 'onCardVerify');
+    }
+
+    btn.addEventListener('click', verify);
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) verify();
+    });
+
+    document.getElementById('buy').addEventListener('click', function () {
+        window.Android.openUrl('mqqwpa://im/chat?chat_type=wpa&uin=1225838378&version=1&src_type=web');
+    });
+    document.getElementById('help').addEventListener('click', function () {
+        window.Android.openUrl('mqqwpa://im/chat?chat_type=wpa&uin=1437562514&version=1&src_type=web');
+    });
+
+    setStatus('请输入卡密后点击验证');
+})();
+</script>
+</body>
+</html>
