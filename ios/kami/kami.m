@@ -9,7 +9,7 @@
 // 页面通过 window.Android.xxx 调用原生（dylib 在 documentStart 注入 shim）：
 //   Android.verifyCardKey2(soft, url, card, cbName)
 //   Android.writeSP(key, value) / Android.Toast(msg) / Android.close() / Android.openUrl(url)
-// 不保存卡密：每次启动都必须重新输入并验证；成功只在本次运行内做心跳。
+// 保存卡密用于输入框预填；每次启动仍需手动验证；成功只在本次运行内做心跳。
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -31,8 +31,9 @@ extern NSArray  *XBEndpoints(void);
 extern NSInteger const XBHeartSeconds;
 extern BOOL      const XBHeartEnabled;
 
+static NSString *const kPrefsCard = @"xb_kami";
 static NSString *const kPrefsClientId = @"xb_clientid";
-// 注意：不保存卡密/会话，每次启动都必须重新输入并验证。
+// 卡密保存用于输入框预填；每次启动仍必须手动点击验证，不会自动登录。
 
 #pragma mark - Crypto
 
@@ -467,7 +468,12 @@ static XbLoginViewController *gLoginVC = nil;
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    // 每次启动都必须手动输入卡密验证，不做任何静默自动登录。
+    // 预填上次成功验证的卡密，但仍然必须手动点击验证
+    NSString *saved = [XBPrefs() stringForKey:kPrefsCard];
+    if (saved.length > 0) {
+        NSString *js = [NSString stringWithFormat:@"(function(){try{var e=document.getElementById('activeCode')||document.getElementById('k');if(e&&!e.value){e.value=%@;}}catch(x){}})();", XBJSString(saved)];
+        [self.web evaluateJavaScript:js completionHandler:nil];
+    }
 }
 
 - (void)showToast:(NSString *)msg {
@@ -494,9 +500,12 @@ static XbLoginViewController *gLoginVC = nil;
         [self doVerify:card silent:NO];
     } else if ([action isEqualToString:@"writeSP"]) {
         NSString *k = d[@"key"]; NSString *v = d[@"value"];
-        // 卡密绝不落地：忽略对 kami 的写入，其他普通键仍可保存
-        if (k.length > 0 && ![k isEqualToString:@"kami"]) {
-            [XBPrefs() setObject:(v ?: @"") forKey:[@"xb_sp_" stringByAppendingString:k]];
+        if (k.length > 0) {
+            if ([k isEqualToString:@"kami"]) {
+                [XBPrefs() setObject:(v ?: @"") forKey:kPrefsCard];
+            } else {
+                [XBPrefs() setObject:(v ?: @"") forKey:[@"xb_sp_" stringByAppendingString:k]];
+            }
         }
     } else if ([action isEqualToString:@"toast"]) {
         [self showToast:d[@"msg"]];
@@ -525,6 +534,7 @@ static XbLoginViewController *gLoginVC = nil;
             self.busy = NO;
             [self callJS:r.success code:r.code msg:(r.success ? @"ok" : r.msg)];
             if (r.success) {
+                [XBPrefs() setObject:card forKey:kPrefsCard];
                 [self showToast:@"验证成功"];
                 XBStartHeartbeat(card, r.cookie);
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -574,11 +584,9 @@ static void XBTryPresent(void) {
 __attribute__((constructor))
 static void XBInit(void) {
     @autoreleasepool {
-        // 清理旧版本可能保存过的卡密/会话，确保升级后也不会自动登录
+        // 只清理旧会话 cookie；卡密保留用于输入框预填
         NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-        [d removeObjectForKey:@"xb_kami"];
         [d removeObjectForKey:@"xb_cookie"];
-        [d removeObjectForKey:@"xb_sp_kami"];
         [d synchronize];
 
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
