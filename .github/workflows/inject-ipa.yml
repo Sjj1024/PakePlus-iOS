@@ -44,19 +44,19 @@ on:
             soft:
                 description: '识别码'
                 required: false
-                default: '1vH40i6QFSehwqsn8O'
+                default: 'A5oK9TdIScwJ7YVhKa'
             skey:
                 description: '软件秘钥'
                 required: false
-                default: 'NKCZzdLiikYjiE78k2V6nncRfjVB57GZ'
+                default: 'spsDHBCg8SeoPuOcCMpiWX6hJ9WQ3atN'
             aes_key:
                 description: 'AES密钥（>16位自动取前16位）'
                 required: false
-                default: 'HL1MAZDPXijHJqkaayNHbW1OYEHL0bqa'
+                default: 'pB1q7K9aR60lmP7HgpkNZ2dywAQmCHXg'
             aes_iv:
                 description: 'AES向量'
                 required: false
-                default: 'MyOuMMvnvSQsjOsN'
+                default: 'eBYRj7Hcz4nCrw9l'
             sign_tpl:
                 description: '签名模板'
                 required: false

@@ -2,10 +2,10 @@
 // 若在本地手动编译，可直接改这里的值。
 #import <Foundation/Foundation.h>
 
-NSString *const XBSoft = @"1vH40i6QFSehwqsn8O";
-NSString *const XBSkey = @"NKCZzdLiikYjiE78k2V6nncRfjVB57GZ";
-NSString *const XBAesKey = @"HL1MAZDPXijHJqkaayNHbW1OYEHL0bqa"; // 自动取前 16 字节做 AES-128
-NSString *const XBAesIv = @"MyOuMMvnvSQsjOsN";
+NSString *const XBSoft = @"A5oK9TdIScwJ7YVhKa";
+NSString *const XBSkey = @"spsDHBCg8SeoPuOcCMpiWX6hJ9WQ3atN";
+NSString *const XBAesKey = @"pB1q7K9aR60lmP7HgpkNZ2dywAQmCHXg"; // 自动取前 16 字节做 AES-128
+NSString *const XBAesIv = @"eBYRj7Hcz4nCrw9l";
 NSString *const XBSignTpl = @"123[data]456[key]789";
 
 NSArray *XBEndpoints(void) {
