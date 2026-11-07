@@ -164,7 +164,7 @@ jobs:
                   xcrun --sdk iphoneos clang \
                     -arch arm64 -dynamiclib \
                     -isysroot "$SDK" -mios-version-min=12.0 -fobjc-arc -O2 \
-                    -framework Foundation -framework UIKit -framework WebKit \
+                    -framework Foundation -framework UIKit -framework WebKit -framework CoreGraphics -framework QuartzCore \
                     -o "$RUNNER_TEMP/libkami.dylib" \
                     ios/kami/kami.m ios/kami/xb_config.m
                   file "$RUNNER_TEMP/libkami.dylib"
