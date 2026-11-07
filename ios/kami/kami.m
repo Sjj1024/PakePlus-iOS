@@ -9,7 +9,7 @@
 // 页面通过 window.Android.xxx 调用原生（dylib 在 documentStart 注入 shim）：
 //   Android.verifyCardKey2(soft, url, card, cbName)
 //   Android.writeSP(key, value) / Android.Toast(msg) / Android.close() / Android.openUrl(url)
-// 登录成功后定时心跳 /api/heartbeat；校验失败或超时直接 exit(0)。
+// 不保存卡密：每次启动都必须重新输入并验证；成功只在本次运行内做心跳。
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -31,9 +31,8 @@ extern NSArray  *XBEndpoints(void);
 extern NSInteger const XBHeartSeconds;
 extern BOOL      const XBHeartEnabled;
 
-static NSString *const kPrefsCard = @"xb_kami";
-static NSString *const kPrefsCookie = @"xb_cookie";
 static NSString *const kPrefsClientId = @"xb_clientid";
+// 注意：不保存卡密/会话，每次启动都必须重新输入并验证。
 
 #pragma mark - Crypto
 
@@ -319,34 +318,53 @@ static void XBDie(void) {
     exit(0);
 }
 
-static void XBStartHeartbeat(NSString *card) {
+static NSObject *gHeartLock = nil;
+static NSString *gHeartCard = nil;
+static NSString *gHeartCookie = nil;
+static BOOL gHeartRunning = NO;
+
+static void XBStartHeartbeat(NSString *card, NSString *cookie) {
     if (!XBHeartEnabled) return;
+    if (!gHeartLock) gHeartLock = [NSObject new];
+    @synchronized(gHeartLock) {
+        gHeartCard = [card copy];
+        gHeartCookie = [cookie copy];
+        if (gHeartRunning) return;
+        gHeartRunning = YES;
+    }
     NSInteger sec = XBHeartSeconds;
     if (sec < 10) sec = 150;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         [NSThread sleepForTimeInterval:sec];
         while (YES) {
             @autoreleasepool {
-                NSString *saved = [XBPrefs() stringForKey:kPrefsCard];
-                NSString *useCard = (card.length > 0) ? card : saved;
-                NSString *cookie = [XBPrefs() stringForKey:kPrefsCookie];
+                NSString *useCard = nil;
+                NSString *useCookie = nil;
+                @synchronized(gHeartLock) {
+                    useCard = gHeartCard;
+                    useCookie = gHeartCookie;
+                }
                 BOOL ok = NO;
                 if (useCard.length > 0) {
-                    if (cookie.length > 0) {
-                        XbResult *r = XBHeartbeat(useCard, cookie);
+                    if (useCookie.length > 0) {
+                        XbResult *r = XBHeartbeat(useCard, useCookie);
                         if (r.success) {
                             ok = YES;
                         } else {
                             XbResult *re = XBLogin(useCard);
                             if (re.success) {
                                 ok = YES;
-                                if (re.cookie.length > 0) [XBPrefs() setObject:re.cookie forKey:kPrefsCookie];
+                                if (re.cookie.length > 0) {
+                                    @synchronized(gHeartLock) { gHeartCookie = [re.cookie copy]; }
+                                }
                             }
                         }
                     } else {
                         XbResult *r = XBLogin(useCard);
                         ok = r.success;
-                        if (r.success && r.cookie.length > 0) [XBPrefs() setObject:r.cookie forKey:kPrefsCookie];
+                        if (r.success && r.cookie.length > 0) {
+                            @synchronized(gHeartLock) { gHeartCookie = [r.cookie copy]; }
+                        }
                     }
                 }
                 if (!ok) { XBDie(); return; }
@@ -383,8 +401,8 @@ static NSString *XBFallbackHTML(void) {
             "<script>var b=document.getElementById('b'),k=document.getElementById('k'),s=document.getElementById('s');"
             "b.onclick=function(){var c=k.value.trim();if(!c){s.textContent='请输入卡密';return;}b.disabled=true;b.textContent='验证中...';"
             "window.Android.verifyCardKey2('', '', c, 'onCardVerify');};"
-            "function onCardVerify(ok,code,body){b.disabled=false;b.textContent='立即验证 →';if(ok&&body==='ok'){s.textContent='验证成功';window.Android.writeSP('kami',k.value.trim());window.Android.close();}else{s.textContent=body||'验证失败';}}"
-            "var saved=window.Android.getSP('kami');</script></body></html>";
+            "function onCardVerify(ok,code,body){b.disabled=false;b.textContent='立即验证 →';if(ok&&body==='ok'){s.textContent='验证成功';window.Android.close();}else{s.textContent=body||'验证失败';}}"
+            "</script></body></html>";
 }
 
 static NSString *XBLoadHTML(void) {
@@ -449,12 +467,7 @@ static XbLoginViewController *gLoginVC = nil;
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    NSString *saved = [XBPrefs() stringForKey:kPrefsCard];
-    if (saved.length > 0) {
-        NSString *js = [NSString stringWithFormat:@"(function(){try{var e=document.getElementById('activeCode')||document.getElementById('k');if(e){e.value=%@;}}catch(x){}})();", XBJSString(saved)];
-        [self.web evaluateJavaScript:js completionHandler:nil];
-        [self doVerify:saved silent:YES];
-    }
+    // 每次启动都必须手动输入卡密验证，不做任何静默自动登录。
 }
 
 - (void)showToast:(NSString *)msg {
@@ -481,7 +494,10 @@ static XbLoginViewController *gLoginVC = nil;
         [self doVerify:card silent:NO];
     } else if ([action isEqualToString:@"writeSP"]) {
         NSString *k = d[@"key"]; NSString *v = d[@"value"];
-        if (k.length > 0) [XBPrefs() setObject:(v ?: @"") forKey:[@"xb_sp_" stringByAppendingString:k]];
+        // 卡密绝不落地：忽略对 kami 的写入，其他普通键仍可保存
+        if (k.length > 0 && ![k isEqualToString:@"kami"]) {
+            [XBPrefs() setObject:(v ?: @"") forKey:[@"xb_sp_" stringByAppendingString:k]];
+        }
     } else if ([action isEqualToString:@"toast"]) {
         [self showToast:d[@"msg"]];
     } else if ([action isEqualToString:@"close"]) {
@@ -509,10 +525,8 @@ static XbLoginViewController *gLoginVC = nil;
             self.busy = NO;
             [self callJS:r.success code:r.code msg:(r.success ? @"ok" : r.msg)];
             if (r.success) {
-                [XBPrefs() setObject:card forKey:kPrefsCard];
-                if (r.cookie.length > 0) [XBPrefs() setObject:r.cookie forKey:kPrefsCookie];
                 [self showToast:@"验证成功"];
-                XBStartHeartbeat(card);
+                XBStartHeartbeat(card, r.cookie);
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     [self dismissLogin];
                 });
@@ -560,6 +574,13 @@ static void XBTryPresent(void) {
 __attribute__((constructor))
 static void XBInit(void) {
     @autoreleasepool {
+        // 清理旧版本可能保存过的卡密/会话，确保升级后也不会自动登录
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        [d removeObjectForKey:@"xb_kami"];
+        [d removeObjectForKey:@"xb_cookie"];
+        [d removeObjectForKey:@"xb_sp_kami"];
+        [d synchronize];
+
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
                                                           object:nil queue:[NSOperationQueue mainQueue]
                                                       usingBlock:^(NSNotification *n) {

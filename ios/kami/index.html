@@ -135,7 +135,6 @@
         btn.textContent = '立即验证 →';
         if (ok && body === 'ok') {
             setStatus('验证成功', 'ok');
-            window.Android.writeSP('kami', input.value.trim());
             window.Android.close();
         } else {
             setStatus(body || ('验证失败' + (code ? '（' + code + '）' : '')), 'err');
