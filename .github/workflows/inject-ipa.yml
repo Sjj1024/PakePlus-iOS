@@ -208,8 +208,13 @@ jobs:
                   git clone --depth=1 https://github.com/zhlynn/zsign.git "$RUNNER_TEMP/zsign"
                   cd "$RUNNER_TEMP/zsign/build/macos"
                   make clean && make -j"$(sysctl -n hw.ncpu)"
-                  if [ ! -x zsign ]; then echo "::error::zsign 编译失败"; exit 1; fi
-                  echo "ZSIGN=$RUNNER_TEMP/zsign/build/macos/zsign" >> "$GITHUB_ENV"
+                  ZSIGN_BIN="$RUNNER_TEMP/zsign/bin/zsign"
+                  if [ ! -x "$ZSIGN_BIN" ]; then
+                    ZSIGN_BIN="$(find "$RUNNER_TEMP/zsign" -type f -name zsign | head -n 1)"
+                  fi
+                  if [ -z "$ZSIGN_BIN" ] || [ ! -x "$ZSIGN_BIN" ]; then echo "::error::zsign 编译失败"; exit 1; fi
+                  echo "ZSIGN=$ZSIGN_BIN" >> "$GITHUB_ENV"
+                  "$ZSIGN_BIN" -v || true
 
             - name: Inject dylib + ad-hoc sign (TrollStore)
               if: inputs.sign_mode == 'adhoc'
