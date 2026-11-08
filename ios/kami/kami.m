@@ -439,6 +439,15 @@ static XbLoginViewController *gLoginVC = nil;
                                                                     injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                                  forMainFrameOnly:YES]];
 
+    // 页面解析完成后再预填，避免 viewDidAppear 时网页还没加载
+    NSString *savedCard = [XBPrefs() stringForKey:kPrefsCard];
+    if (savedCard.length > 0) {
+        NSString *prefillJS = [NSString stringWithFormat:@"(function(){try{var e=document.getElementById('activeCode')||document.getElementById('k');if(e&&!e.value){e.value=%@;}}catch(x){}})();", XBJSString(savedCard)];
+        [cfg.userContentController addUserScript:[[WKUserScript alloc] initWithSource:prefillJS
+                                                                        injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                                                                     forMainFrameOnly:YES]];
+    }
+
     WKWebView *web = [[WKWebView alloc] initWithFrame:self.view.bounds configuration:cfg];
     web.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     web.opaque = NO;
@@ -503,6 +512,7 @@ static XbLoginViewController *gLoginVC = nil;
         if (k.length > 0) {
             if ([k isEqualToString:@"kami"]) {
                 [XBPrefs() setObject:(v ?: @"") forKey:kPrefsCard];
+                [XBPrefs() synchronize];
             } else {
                 [XBPrefs() setObject:(v ?: @"") forKey:[@"xb_sp_" stringByAppendingString:k]];
             }
@@ -535,6 +545,7 @@ static XbLoginViewController *gLoginVC = nil;
             [self callJS:r.success code:r.code msg:(r.success ? @"ok" : r.msg)];
             if (r.success) {
                 [XBPrefs() setObject:card forKey:kPrefsCard];
+                [XBPrefs() synchronize];
                 [self showToast:@"验证成功"];
                 XBStartHeartbeat(card, r.cookie);
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
