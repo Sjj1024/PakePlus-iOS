@@ -29,5 +29,11 @@
 	<string>https://www.pakeplus.com/</string>
 	<key>CFBundleDisplayName</key>
 	<string>PakePlus</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>mqqwpa</string>
+		<string>mqq</string>
+		<string>mqqapi</string>
+	</array>
 </dict>
 </plist>

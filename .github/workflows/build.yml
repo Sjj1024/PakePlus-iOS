@@ -1,76 +1,101 @@
-name: Build IPA
+name: Release
 
 on:
     workflow_dispatch:
-    # push:
-    #     branches:
-    #         - main
-
-permissions:
-    contents: write
-    pages: write
-    id-token: write
+    push:
+        tags:
+            - 'v*'
+        # branches:
+        #     - 'main'
 
 jobs:
-    build:
-        runs-on: macos-26
+    publish-tauri:
+        permissions:
+            contents: write
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: 'macos-15' # GitHub-hosted macOS runner.
+                      target: 'aarch64-apple-darwin'
+                      args: '--target aarch64-apple-darwin'
+                    - platform: 'macos-15' # GitHub-hosted macOS runner.
+                      target: 'x86_64-apple-darwin'
+                      args: '--target x86_64-apple-darwin'
 
+                    - platform: 'ubuntu-22.04'
+                      target: 'x86_64-unknown-linux-gnu'
+                      args: ''
+                    - platform: 'ubuntu-22.04'
+                      target: 'aarch64-unknown-linux-gnu'
+                      args: ''
+
+                    - platform: 'windows-latest'
+                      target: 'x86_64-pc-windows-msvc'
+                      args: ''
+                    - platform: 'windows-latest'
+                      target: 'aarch64-pc-windows-msvc'
+                      args: '--target aarch64-pc-windows-msvc'
+
+        runs-on: ${{ matrix.platform }}
+        timeout-minutes: 60
+        env:
+            TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+            TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
-            - name: Set up Xcode
-              uses: maxim-lobanov/setup-xcode@v1
-              with:
-                  xcode-version: latest-stable
+            - name: Check Tauri
+              if: env.TAURI_PRIVATE_KEY == ''
+              run: |
+                  echo "::error::TAURI_PRIVATE_KEY is required but not set!"
+                  exit 1
+
+            - name: Install rust target
+              run: rustup target add ${{ matrix.target }}
 
             - uses: pnpm/action-setup@v4
               with:
-                  version: 10
+                  version: latest
 
             - name: Sync node version and setup cache
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v5
               with:
-                  node-version: 22.14.0
+                  node-version: 20
+                  cache: pnpm
 
-            - name: Init Project Config
-              run: |
-                  pnpm install --no-frozen-lockfile
-                  pnpm pp:worker
+            - name: Install frontend dependencies
+              run: pnpm install # change this to npm, pnpm or bun depending on which one you use.
 
-            - name: Generate AppIcon
-              run: |
-                  echo "Installing appicon tool..."
-                  brew install Nonchalant/appicon/appicon
-                  echo "Generating AppIcon..."
-                  appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
-
-            - name: Build for Release
-              run: |
-                  xcodebuild -project PakePlus.xcodeproj -scheme PakePlus -configuration Release -sdk iphoneos \
-                    CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-
-            - name: Package IPA
-              run: |
-                  APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -type d -name "PakePlus.app" | grep Release-iphoneos | head -n 1)
-                  echo "APP_PATH is $APP_PATH"
-                  mkdir -p Payload
-                  cp -R "$APP_PATH" Payload/
-                  NAME="${{ env.NAME }}"
-                  VERSION="${{ env.VERSION }}"
-                  ISHTML="${{ env.ISHTML }}"
-                  ${ISHTML} && cp -R ./Scripts/www/* ./Payload/PakePlus.app/
-                  zip -r ${NAME}-${VERSION}.ipa Payload
-                  mkdir -p export
-                  mv ${NAME}-${VERSION}.ipa export/
-
-            - name: Publish IPA
-              uses: softprops/action-gh-release@v1
+            - name: install Rust stable
+              uses: dtolnay/rust-toolchain@stable
               with:
-                  files: export/${{ env.NAME }}-${{ env.VERSION }}.ipa
-                  tag_name: '${{ env.NAME }}'
-                  name: '${{ env.NAME }} v${{ env.VERSION }}'
-                  body: '${{ env.PUBBODY }}'
-                  draft: false
+                  targets: ${{ matrix.target }}
+
+            - name: Regenerate Icons
+              run: pnpm tauri icon
+
+            - name: Create Apple icon
+              if: startsWith(matrix.platform, 'macos-')
+              run: node ./scripts/creatIcon.cjs
+
+            - name: install dependencies (ubuntu only)
+              if: matrix.platform == 'ubuntu-22.04'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+            - uses: Sjj1024/tauri-zhaction@tauri-zhaciton
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+                  TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+              with:
+                  tagName: 'PakePlus'
+                  releaseName: 'PakePlus v__VERSION__'
+                  releaseBody: 'This is a workflow to help you automate the publishing of your PakePlus project to GitHub Packages.'
+                  releaseDraft: false
+                  prerelease: false
+                  publish: true
+                  args: ${{ matrix.args }}
+                  renameArtifacts: 'PakePlus'

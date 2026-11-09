@@ -1,0 +1,252 @@
+name: Inject IPA (卡密 dylib 一键注入 + 签名)
+
+# git / GitHub Actions 版「IPA 一键注入」：
+#   1) 用 macOS Runner 自带 Xcode 把卡密 dylib（ios/kami）编译成 arm64；
+#   2) 把可自定义的 HTML 登录页放进 App 包内 kami/index.html；
+#   3) 用 zsign 注入 dylib（LC_LOAD_DYLIB）并重新签名；
+#   4) 产物作为 Artifact 下载。
+# HTML 模板：默认用仓库里的 ios/kami/index.html，也可用 html_url 指定外部模板；
+#           页面通过 window.Android.verifyCardKey2/writeSP/Toast/close/openUrl 调原生。
+# 签名：adhoc（免证书，配 TrollStore，要求 IPA 已解密）或 cert（Secrets 的 p12 + 描述文件）。
+
+on:
+    workflow_dispatch:
+        inputs:
+            ipa_url:
+                description: '基础 IPA 下载地址（留空则用 ipa_path）'
+                required: false
+                default: ''
+            ipa_path:
+                description: '仓库内基础 IPA 路径（ipa_url 为空时使用）'
+                required: false
+                default: ''
+            html_url:
+                description: '可选：HTML 模板下载地址（留空则用 html_path）'
+                required: false
+                default: ''
+            html_path:
+                description: '仓库内 HTML 模板路径'
+                required: false
+                default: 'ios/kami/index.html'
+            sign_mode:
+                description: '签名方式：adhoc 或 cert'
+                required: true
+                default: 'adhoc'
+            out_name:
+                description: '输出 IPA 文件名'
+                required: true
+                default: 'injected.ipa'
+            bundle_id:
+                description: '可选：修改 Bundle ID（一般留空）'
+                required: false
+                default: ''
+            # ---- 卡密平台对接参数（编译 dylib 用）----
+            soft:
+                description: '识别码'
+                required: false
+                default: 'A5oK9TdIScwJ7YVhKa'
+            skey:
+                description: '软件秘钥'
+                required: false
+                default: 'spsDHBCg8SeoPuOcCMpiWX6hJ9WQ3atN'
+            aes_key:
+                description: 'AES密钥（>16位自动取前16位）'
+                required: false
+                default: 'pB1q7K9aR60lmP7HgpkNZ2dywAQmCHXg'
+            aes_iv:
+                description: 'AES向量'
+                required: false
+                default: 'eBYRj7Hcz4nCrw9l'
+            sign_tpl:
+                description: '签名模板'
+                required: false
+                default: '123[data]456[key]789'
+            endpoints:
+                description: '接口地址（英文逗号分隔）'
+                required: false
+                default: 'https://api2.xbzhan.com/api/login,https://api3.xbzhan.com/api/login,https://api4.xbzhan.com/api/login'
+            heart_seconds:
+                description: '心跳间隔(秒)，建议小于后台周期(如180)'
+                required: false
+                default: '150'
+            heart_on:
+                description: '心跳开关：1 开启（失败/超时退出），0 关闭'
+                required: false
+                default: '1'
+            dylib_url:
+                description: '可选：外部 dylib 下载地址（填了就不从源码编译）'
+                required: false
+                default: ''
+            dylib_path:
+                description: '可选：仓库内外部 dylib 路径（填了就不从源码编译）'
+                required: false
+                default: ''
+
+jobs:
+    inject:
+        runs-on: macos-15
+        timeout-minutes: 40
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Prepare base IPA
+              run: |
+                  set -eo pipefail
+                  if [ -n "${{ inputs.ipa_url }}" ]; then
+                    echo "下载基础 IPA: ${{ inputs.ipa_url }}"
+                    curl -fL --retry 3 -o "$RUNNER_TEMP/base.ipa" "${{ inputs.ipa_url }}"
+                    echo "IPA=$RUNNER_TEMP/base.ipa" >> "$GITHUB_ENV"
+                  else
+                    if [ ! -f "${{ inputs.ipa_path }}" ]; then
+                      echo "::error::缺少基础 IPA：ipa_url 为空且 ipa_path 不存在（${{ inputs.ipa_path }}）"; exit 1
+                    fi
+                    echo "IPA=${{ inputs.ipa_path }}" >> "$GITHUB_ENV"
+                  fi
+                  file "$IPA" || true
+
+            - name: Resolve external dylib (optional)
+              if: inputs.dylib_url != '' || inputs.dylib_path != ''
+              run: |
+                  set -eo pipefail
+                  if [ -n "${{ inputs.dylib_url }}" ]; then
+                    curl -fL --retry 3 -o "$RUNNER_TEMP/libkami.dylib" "${{ inputs.dylib_url }}"
+                  else
+                    cp "${{ inputs.dylib_path }}" "$RUNNER_TEMP/libkami.dylib"
+                  fi
+                  file "$RUNNER_TEMP/libkami.dylib"
+                  echo "DYLIB=$RUNNER_TEMP/libkami.dylib" >> "$GITHUB_ENV"
+
+            - name: Build kami dylib from source
+              if: inputs.dylib_url == '' && inputs.dylib_path == ''
+              run: |
+                  set -eo pipefail
+                  mkdir -p ios/kami
+
+                  SOFT="${{ inputs.soft }}"
+                  SKEY="${{ inputs.skey }}"
+                  AESKEY="${{ inputs.aes_key }}"
+                  AESIV="${{ inputs.aes_iv }}"
+                  SIGNTPL="${{ inputs.sign_tpl }}"
+                  HEART="${{ inputs.heart_seconds }}"
+                  HEARTON="${{ inputs.heart_on }}"
+                  EPS_RAW="${{ inputs.endpoints }}"
+
+                  ARR=""
+                  IFS=','
+                  for u in $EPS_RAW; do
+                    u="$(printf '%s' "$u" | sed 's/^ *//; s/ *$//')"
+                    [ -z "$u" ] && continue
+                    ARR="$ARR@\"$u\","
+                  done
+                  unset IFS
+                  ARR="${ARR%,}"
+                  if [ -z "$ARR" ]; then
+                    ARR='@"https://api2.xbzhan.com/api/login",@"https://api3.xbzhan.com/api/login",@"https://api4.xbzhan.com/api/login"'
+                  fi
+                  case "$HEART" in ''|*[!0-9]*) HEART=150;; esac
+                  [ "$HEARTON" = "0" ] && HEARTBOOL=NO || HEARTBOOL=YES
+
+                  cat > ios/kami/xb_config.m <<EOF
+                  #import <Foundation/Foundation.h>
+                  NSString *const XBSoft = @"${SOFT}";
+                  NSString *const XBSkey = @"${SKEY}";
+                  NSString *const XBAesKey = @"${AESKEY}";
+                  NSString *const XBAesIv = @"${AESIV}";
+                  NSString *const XBSignTpl = @"${SIGNTPL}";
+                  NSArray *XBEndpoints(void) { return @[${ARR}]; }
+                  NSInteger const XBHeartSeconds = ${HEART};
+                  BOOL const XBHeartEnabled = ${HEARTBOOL};
+                  EOF
+                  echo "=== 生成的 xb_config.m ==="; cat ios/kami/xb_config.m
+
+                  SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+                  xcrun --sdk iphoneos clang \
+                    -arch arm64 -dynamiclib \
+                    -isysroot "$SDK" -mios-version-min=12.0 -fobjc-arc -O2 \
+                    -framework Foundation -framework UIKit -framework WebKit -framework CoreGraphics -framework QuartzCore \
+                    -o "$RUNNER_TEMP/libkami.dylib" \
+                    ios/kami/kami.m ios/kami/xb_config.m
+                  file "$RUNNER_TEMP/libkami.dylib"
+                  echo "DYLIB=$RUNNER_TEMP/libkami.dylib" >> "$GITHUB_ENV"
+
+            - name: Inject HTML template into app bundle
+              run: |
+                  set -eo pipefail
+                  HTML_SRC=""
+                  if [ -n "${{ inputs.html_url }}" ]; then
+                    echo "下载 HTML 模板: ${{ inputs.html_url }}"
+                    curl -fL --retry 3 -o "$RUNNER_TEMP/index.html" "${{ inputs.html_url }}"
+                    HTML_SRC="$RUNNER_TEMP/index.html"
+                  elif [ -n "${{ inputs.html_path }}" ] && [ -f "${{ inputs.html_path }}" ]; then
+                    HTML_SRC="${{ inputs.html_path }}"
+                  fi
+                  if [ -z "$HTML_SRC" ]; then echo "未提供 HTML 模板，使用 dylib 内置兜底页"; exit 0; fi
+
+                  WORK="$RUNNER_TEMP/ipa_work"
+                  rm -rf "$WORK"; mkdir -p "$WORK"
+                  unzip -q "$IPA" -d "$WORK"
+                  APP="$(find "$WORK/Payload" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+                  if [ -z "$APP" ]; then echo "::error::IPA 内没有找到 .app"; exit 1; fi
+                  echo "目标 App: $APP"
+                  mkdir -p "$APP/kami"
+                  cp "$HTML_SRC" "$APP/kami/index.html"
+                  rm -rf "$APP/_CodeSignature"
+                  OUT="$RUNNER_TEMP/ipa_html.ipa"
+                  rm -f "$OUT"
+                  ( cd "$WORK" && zip -qry "$OUT" Payload )
+                  file "$OUT"
+                  echo "IPA=$OUT" >> "$GITHUB_ENV"
+
+            - name: Build zsign
+              run: |
+                  set -eo pipefail
+                  brew install pkg-config openssl || true
+                  export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+                  export CFLAGS="-I$(brew --prefix openssl)/include ${CFLAGS:-}"
+                  export LDFLAGS="-L$(brew --prefix openssl)/lib ${LDFLAGS:-}"
+                  git clone --depth=1 https://github.com/zhlynn/zsign.git "$RUNNER_TEMP/zsign"
+                  cd "$RUNNER_TEMP/zsign/build/macos"
+                  make clean && make -j"$(sysctl -n hw.ncpu)"
+                  ZSIGN_BIN="$RUNNER_TEMP/zsign/bin/zsign"
+                  if [ ! -x "$ZSIGN_BIN" ]; then
+                    ZSIGN_BIN="$(find "$RUNNER_TEMP/zsign" -type f -name zsign | head -n 1)"
+                  fi
+                  if [ -z "$ZSIGN_BIN" ] || [ ! -x "$ZSIGN_BIN" ]; then echo "::error::zsign 编译失败"; exit 1; fi
+                  echo "ZSIGN=$ZSIGN_BIN" >> "$GITHUB_ENV"
+                  "$ZSIGN_BIN" -v || true
+
+            - name: Inject dylib + ad-hoc sign (TrollStore)
+              if: inputs.sign_mode == 'adhoc'
+              run: |
+                  set -eo pipefail
+                  EXTRA=""
+                  if [ -n "${{ inputs.bundle_id }}" ]; then EXTRA="-b ${{ inputs.bundle_id }}"; fi
+                  "$ZSIGN" -a $EXTRA -l "$DYLIB" -o "${{ inputs.out_name }}" "$IPA"
+                  ls -lh "${{ inputs.out_name }}"
+
+            - name: Inject dylib + cert sign
+              if: inputs.sign_mode == 'cert'
+              env:
+                  IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+                  IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+                  IOS_PROVISION_BASE64: ${{ secrets.IOS_PROVISION_BASE64 }}
+              run: |
+                  set -eo pipefail
+                  if [ -z "${IOS_P12_BASE64:-}" ] || [ -z "${IOS_PROVISION_BASE64:-}" ]; then
+                    echo "::error::cert 模式需要在仓库 Secrets 配置 IOS_P12_BASE64 / IOS_P12_PASSWORD / IOS_PROVISION_BASE64"; exit 1
+                  fi
+                  echo "$IOS_P12_BASE64" | base64 -D > "$RUNNER_TEMP/cert.p12"
+                  echo "$IOS_PROVISION_BASE64" | base64 -D > "$RUNNER_TEMP/app.mobileprovision"
+                  EXTRA=""
+                  if [ -n "${{ inputs.bundle_id }}" ]; then EXTRA="-b ${{ inputs.bundle_id }}"; fi
+                  "$ZSIGN" -k "$RUNNER_TEMP/cert.p12" -p "$IOS_P12_PASSWORD" \
+                    -m "$RUNNER_TEMP/app.mobileprovision" $EXTRA \
+                    -l "$DYLIB" -o "${{ inputs.out_name }}" "$IPA"
+                  ls -lh "${{ inputs.out_name }}"
+
+            - name: Upload injected IPA
+              uses: actions/upload-artifact@v4
+              with:
+                  name: injected-ipa
+                  path: ${{ inputs.out_name }}
